@@ -1,0 +1,10 @@
+{
+  "languages": {
+    "HEEx": {
+      "soft_wrap": "prefer_line",
+      "auto_indent": "syntax_aware",
+      "format_on_save": "on",
+      "hard_tabs": false,
+    },
+  },
+}
