@@ -5,8 +5,21 @@ defmodule Checkin.Volunteers do
 
   import Ecto.Query, warn: false
   alias Checkin.Repo
-
   alias Checkin.Volunteers.Volunteer
+
+  @topic "volunteers"
+
+  def subscribe do
+    Phoenix.PubSub.subscribe(Checkin.PubSub, @topic)
+  end
+
+  def broadcast({:ok, volunteer}, tag) do
+    Phoenix.PubSub.broadcast(Checkin.PubSub, @topic, {tag, volunteer})
+
+    {:ok, volunteer}
+  end
+
+  def broadcast({:error, _changeset} = error, _tag), do: error
 
   @doc """
   Returns the list of volunteers.
@@ -53,6 +66,7 @@ defmodule Checkin.Volunteers do
     %Volunteer{}
     |> Volunteer.changeset(attrs)
     |> Repo.insert()
+    |> broadcast(:volunteer_created)
   end
 
   @doc """
@@ -71,6 +85,7 @@ defmodule Checkin.Volunteers do
     volunteer
     |> Volunteer.changeset(attrs)
     |> Repo.update()
+    |> broadcast(:volunteer_updated)
   end
 
   @doc """
@@ -86,7 +101,9 @@ defmodule Checkin.Volunteers do
 
   """
   def delete_volunteer(%Volunteer{} = volunteer) do
-    Repo.delete(volunteer)
+    volunteer
+    |> Repo.delete()
+    |> broadcast(:volunteer_deleted)
   end
 
   @doc """

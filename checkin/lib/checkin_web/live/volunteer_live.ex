@@ -2,17 +2,19 @@ defmodule CheckinWeb.VolunteerLive do
   use CheckinWeb, :live_view
 
   alias Checkin.Volunteers
-  alias Checkin.Volunteers.Volunteer
+  alias CheckinWeb.VolunteerFormComponent
 
   def mount(_params, _session, socket) do
-    volunteers = Volunteers.list_volunteers()
+    if connected?(socket) do
+      Volunteers.subscribe()
+    end
 
-    changeset = Volunteers.change_volunteer(%Volunteer{})
+    volunteers = Volunteers.list_volunteers()
 
     socket =
       socket
       |> stream(:volunteers, volunteers)
-      |> assign(form: to_form(changeset))
+      |> assign(:count, length(volunteers))
 
     {:ok, socket}
   end
@@ -22,41 +24,44 @@ defmodule CheckinWeb.VolunteerLive do
     <Layouts.app flash={@flash}>
       <h1 class="text-center font-bold text-3xl">Volunteer Check-In</h1>
       <div id="volunteer-checkin">
-        <.form for={@form} phx-submit="save" phx-change="validate">
-          <.input field={@form[:name]} placeholder="Name" phx-debounce="500" />
-          <.input field={@form[:phone]} type="tel" placeholder="Phone" phx-debounce="blur" />
-          <.button phx-disable-with="Saving...">
-            Check in
-          </.button>
-        </.form>
+        <.live_component module={VolunteerFormComponent} id={:new} count={@count}/>
         <div id="volunteers" phx-update="stream">
-          <div
-            :for={{volunteer_id, volunteer} <- @streams.volunteers}
+          <.volunteer :for={{volunteer_id, volunteer} <- @streams.volunteers}
+            volunteer={volunteer}
             id={volunteer_id}
-            class={"volunteer #{if volunteer.checked_out, do: "out"}"}
-          >
-            <div class="name">
-              {volunteer.name}
-            </div>
-            <div class="phone">
-              {volunteer.phone}
-            </div>
-
-            <.button phx-click="toggle-status" phx-value-id={volunteer.id} class="btn btn-secondary">
-              {if volunteer.checked_out, do: "Check In", else: "Check Out"}
-            </.button>
-
-            <.link
-                phx-click="delete"
-                phx-value-id={volunteer.id}
-                data-confirm="Are you sure?"
-                class="delete">
-              <.icon name="hero-trash-solid" />
-            </.link>
-          </div>
+          />
         </div>
       </div>
     </Layouts.app>
+    """
+  end
+
+  def volunteer(assigns) do
+    ~H"""
+    <div
+
+      id={@id}
+      class={"volunteer #{if @volunteer.checked_out, do: "out"}"}
+    >
+      <div class="name">
+        {@volunteer.name}
+      </div>
+      <div class="phone">
+        {@volunteer.phone}
+      </div>
+
+      <.button phx-click="toggle-status" phx-value-id={@volunteer.id} class="btn btn-secondary">
+        {if @volunteer.checked_out, do: "Check In", else: "Check Out"}
+      </.button>
+
+      <.link
+          phx-click="delete"
+          phx-value-id={@volunteer.id}
+          data-confirm="Are you sure?"
+          class="delete">
+        <.icon name="hero-trash-solid" />
+      </.link>
+    </div>
     """
   end
 
@@ -66,7 +71,6 @@ defmodule CheckinWeb.VolunteerLive do
 
     socket =
       socket
-      |> stream_delete(:volunteers, volunteer)
       |> put_flash(:info, "Volunteer successfully deleted!")
 
     {:noreply, socket}
@@ -75,34 +79,28 @@ defmodule CheckinWeb.VolunteerLive do
   def handle_event("toggle-status", %{"id" => id}, socket) do
     volunteer = Volunteers.get_volunteer!(id)
 
-    {:ok, volunteer} =
+    {:ok, _volunteer} =
       Volunteers.update_volunteer(volunteer, %{checked_out: !volunteer.checked_out})
 
+    {:noreply, socket}
+  end
+
+  def handle_info({:volunteer_created, volunteer}, socket) do
+    socket =
+      socket
+      |> update(:count, &(&1 + 1))
+      |> stream_insert(:volunteers, volunteer, at: 0)
+      |> put_flash(:info, "Volunteer successfully checked in!")
+
+    {:noreply, socket}
+  end
+
+  def handle_info({:volunteer_updated, volunteer}, socket) do
     {:noreply, stream_insert(socket, :volunteers, volunteer)}
   end
 
-  def handle_event("validate", %{"volunteer" => volunteer_params}, socket) do
-    changeset =
-      %Volunteer{}
-      |> Volunteers.change_volunteer(volunteer_params)
-      |> Map.put(:action, :validate)
-
-    {:noreply, assign(socket, :form, to_form(changeset))}
-  end
-
-  def handle_event("save", %{"volunteer" => volunteer_params}, socket) do
-    case Volunteers.create_volunteer(volunteer_params) do
-      {:ok, volunteer} ->
-        socket =
-          socket
-          |> stream_insert(:volunteers, volunteer, at: 0)
-          |> put_flash(:info, "Volunteer successfully checked in!")
-
-        changeset = Volunteers.change_volunteer(%Volunteer{})
-        {:noreply, assign(socket, :form, to_form(changeset))}
-
-      {:error, changeset} ->
-        {:noreply, assign(socket, :form, to_form(changeset))}
-    end
+  def handle_info({:volunteer_deleted, volunteer}, socket) do
+    socket = update(socket, :count, &(&1 - 1))
+    {:noreply, stream_delete(socket, :volunteers, volunteer)}
   end
 end
